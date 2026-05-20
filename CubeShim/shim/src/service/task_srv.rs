@@ -294,10 +294,9 @@ impl Task for TaskService {
             self.log.clone(),
         );
         let mut sb = self.sandbox.lock().await;
-        if sb.paused().await {
-            errf!(self.log, "sandbox not in normal state");
-            return Err(Others(format!("sandbox not in normal state")));
-        }
+        // Allow delete on PAUSED sandboxes. During destroy, signal_container(SIGKILL)
+        // returns Ok() without contacting the agent when the sandbox is not running,
+        // so deletion is safe even when the VM is paused.
         let (exit_code, exit_tm) = {
             if req.exec_id.is_empty() {
                 match sb.delete_container(&req.id).await {
