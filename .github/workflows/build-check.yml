@@ -49,59 +49,30 @@ jobs:
       matrix:
         include:
           - component: CubeAPI
-            build_command: >-
-              mkdir -p /workspace/_output/bin &&
-              cd /workspace/CubeAPI &&
-              cargo build --release --locked &&
-              install -m 0755 /workspace/CubeAPI/target/release/cube-api /workspace/_output/bin/cube-api
+            make_target: cubeapi
             expected_bins: |
               _output/bin/cube-api
           - component: CubeMaster
-            build_command: >-
-              mkdir -p /workspace/_output/bin &&
-              cd /workspace/CubeMaster &&
-              go mod download &&
-              make proto &&
-              go build -o /workspace/_output/bin/cubemaster ./cmd/cubemaster &&
-              go build -o /workspace/_output/bin/cubemastercli ./cmd/cubemastercli
+            make_target: cubemaster
             expected_bins: |
               _output/bin/cubemaster
               _output/bin/cubemastercli
           - component: Cubelet
-            build_command: >-
-              mkdir -p /workspace/_output/bin &&
-              cd /workspace/Cubelet &&
-              go mod download &&
-              make proto &&
-              go build -o /workspace/_output/bin/cubelet ./cmd/cubelet &&
-              go build -o /workspace/_output/bin/cubecli ./cmd/cubecli
+            make_target: cubelet
             expected_bins: |
               _output/bin/cubelet
               _output/bin/cubecli
           - component: agent
-            build_command: >-
-              mkdir -p /workspace/_output/bin &&
-              cd /workspace/agent &&
-              make -j1 &&
-              install -m 0755 /workspace/agent/target/x86_64-unknown-linux-musl/release/cube-agent /workspace/_output/bin/cube-agent
+            make_target: agent
             expected_bins: |
               _output/bin/cube-agent
           - component: CubeShim
-            build_command: >-
-              mkdir -p /workspace/_output/bin &&
-              cd /workspace/CubeShim &&
-              cargo build --release --locked &&
-              install -m 0755 /workspace/CubeShim/target/release/containerd-shim-cube-rs /workspace/_output/bin/containerd-shim-cube-rs &&
-              install -m 0755 /workspace/CubeShim/target/release/cube-runtime /workspace/_output/bin/cube-runtime
+            make_target: shim
             expected_bins: |
               _output/bin/containerd-shim-cube-rs
               _output/bin/cube-runtime
           - component: network-agent
-            build_command: >-
-              mkdir -p /workspace/_output/bin &&
-              cd /workspace/network-agent &&
-              make proto &&
-              go build -o /workspace/_output/bin/network-agent ./cmd/network-agent
+            make_target: network-agent
             expected_bins: |
               _output/bin/network-agent
 
@@ -195,16 +166,16 @@ jobs:
       - name: Build ${{ matrix.component }}
         shell: bash
         env:
-          BUILD_COMMAND: ${{ matrix.build_command }}
+          MAKE_TARGET: ${{ matrix.make_target }}
           EXPECTED_BINS: ${{ matrix.expected_bins }}
         run: |
           set -euo pipefail
 
           echo "Component: ${{ matrix.component }}"
           echo "Builder image: ${{ steps.builder_image.outputs.image }}"
-          make builder-run \
-            BUILDER_IMAGE="${{ steps.builder_image.outputs.image }}" \
-            BUILDER_CMD="${BUILD_COMMAND}"
+
+          make "${MAKE_TARGET}" \
+            BUILDER_IMAGE="${{ steps.builder_image.outputs.image }}"
 
           while IFS= read -r binary; do
             [[ -n "${binary}" ]] || continue

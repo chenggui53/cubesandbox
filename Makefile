@@ -50,7 +50,11 @@ help:
 	@printf "  - Run 'make builder-image' first if image %s is missing\n" "$(BUILDER_IMAGE)"
 
 builder-image:
-	docker build -t $(BUILDER_IMAGE) -f $(BUILDER_DOCKERFILE) ./docker
+	@if [ -z "$(BUILDER_FORCE_REBUILD)" ] && docker image inspect $(BUILDER_IMAGE) >/dev/null 2>&1; then \
+		printf 'Builder image %s already present, skipping build (set BUILDER_FORCE_REBUILD=1 to rebuild)\n' "$(BUILDER_IMAGE)"; \
+	else \
+		docker build -t $(BUILDER_IMAGE) -f $(BUILDER_DOCKERFILE) ./docker; \
+	fi
 
 prepare-builder-home:
 	@mkdir -p "$(BUILDER_HOME)" \
