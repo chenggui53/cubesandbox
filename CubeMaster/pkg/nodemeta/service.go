@@ -129,6 +129,9 @@ func RegisterNode(ctx context.Context, req *RegisterNodeRequest) (*NodeSnapshot,
 	if req.HostIP == "" {
 		req.HostIP = req.NodeID
 	}
+
+	effectiveMaxMvmNum := resolveMaxMvmNum(global.getNode(req.NodeID), req.MaxMvmNum)
+
 	reg := &models.NodeRegistration{
 		NodeID:              req.NodeID,
 		HostIP:              req.HostIP,
@@ -141,7 +144,7 @@ func RegisterNode(ctx context.Context, req *RegisterNodeRequest) (*NodeSnapshot,
 		QuotaCPU:            req.QuotaCPU,
 		QuotaMemMB:          req.QuotaMemMB,
 		CreateConcurrentNum: req.CreateConcurrentNum,
-		MaxMvmNum:           req.MaxMvmNum,
+		MaxMvmNum:           effectiveMaxMvmNum,
 	}
 	if err := global.db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "node_id"}},
@@ -167,7 +170,7 @@ func RegisterNode(ctx context.Context, req *RegisterNodeRequest) (*NodeSnapshot,
 	snap.QuotaCPU = req.QuotaCPU
 	snap.QuotaMemMB = req.QuotaMemMB
 	snap.CreateConcurrentNum = req.CreateConcurrentNum
-	snap.MaxMvmNum = req.MaxMvmNum
+	snap.MaxMvmNum = effectiveMaxMvmNum
 	global.mu.Unlock()
 	syncLocalcache(snap)
 	return cloneSnapshot(snap), nil
@@ -248,6 +251,23 @@ func ListSchedulerNodes(ctx context.Context) ([]*node.Node, error) {
 		out = append(out, toSchedulerNode(snap))
 	}
 	return out, nil
+}
+
+func (s *service) getNode(nodeID string) *NodeSnapshot {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.nodes[nodeID]
+}
+
+// resolveMaxMvmNum preserves the existing MaxMvmNum when the incoming request
+// doesn't specify one (<=0). This allows admin-configured limits (set via DB
+// or config) to survive cubelet restarts where the cubelet calculates a
+// different value from available memory.
+func resolveMaxMvmNum(existing *NodeSnapshot, reqMaxMvmNum int64) int64 {
+	if existing != nil && existing.MaxMvmNum > 0 && reqMaxMvmNum <= 0 {
+		return existing.MaxMvmNum
+	}
+	return reqMaxMvmNum
 }
 
 func (s *service) ensureNode(nodeID string) *NodeSnapshot {
