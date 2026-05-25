@@ -106,6 +106,12 @@ func main() {
 	if err != nil {
 		CubeLog.Fatalf("network-agent init failed: %v", err)
 	}
+	if svc == nil {
+		CubeLog.Fatalf("network-agent init returned nil service without error")
+	}
+	if v := reflect.ValueOf(svc); v.Kind() == reflect.Ptr && v.IsNil() {
+		CubeLog.Fatalf("network-agent init returned typed-nil service (type=%T)", svc)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
