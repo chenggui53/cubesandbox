@@ -103,6 +103,9 @@ func constructCreateReq(r *http.Request) (*types.CreateCubeSandboxReq, error) {
 	if req.Namespace == "" {
 		req.Namespace = "default"
 	}
+	if err := templatecenter.ValidateResourceConstraints(req.Containers); err != nil {
+		return nil, err
+	}
 	return req, nil
 }
 

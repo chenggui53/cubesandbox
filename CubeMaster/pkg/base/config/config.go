@@ -163,11 +163,55 @@ type SchedulerConf struct {
 	DisableBackoffFilterInstanceType map[string]bool                   `yaml:"disable_backoff_filter_instance_type"`
 	ThirtpartyFilterInstanceType     map[string]bool                   `yaml:"thirtparty_filter_instance_type"`
 	InstanceTypeConf                 map[string]InstanceTypeConf       `yaml:"instance_type_conf"`
+	ResourceConstraints              *ResourceConstraints              `yaml:"resource_constraints"`
 }
 
 type WrapperSchedulerConf struct {
 	SchedulerConf           `yaml:",inline"`
 	labelRefInstanceTypeMap map[string]string
+}
+
+// ResourceConstraints defines minimum CPU and memory requirements for templates
+// and sandbox creation. When configured, any container with resources below
+// these thresholds will be rejected.
+type ResourceConstraints struct {
+	MinCPU    string `yaml:"min_cpu"`    // e.g., "100m"
+	MinMemory string `yaml:"min_memory"` // e.g., "128Mi"
+	minCPU    resource.Quantity
+	minMem    resource.Quantity
+	parsed    bool
+}
+
+// MinCPURes returns the parsed minimum CPU quantity. If preHandleScheduler has
+// already cached the value, it is returned directly. Otherwise the string is
+// parsed on demand (e.g. in tests that construct ResourceConstraints directly).
+func (rc *ResourceConstraints) MinCPURes() (resource.Quantity, error) {
+	if rc.parsed {
+		return rc.minCPU, nil
+	}
+	if rc.MinCPU == "" {
+		return resource.Quantity{}, nil
+	}
+	q, err := resource.ParseQuantity(rc.MinCPU)
+	if err != nil {
+		return resource.Quantity{}, fmt.Errorf("invalid min_cpu %q: %w", rc.MinCPU, err)
+	}
+	return q, nil
+}
+
+// MinMemoryRes returns the parsed minimum memory quantity. See MinCPURes.
+func (rc *ResourceConstraints) MinMemoryRes() (resource.Quantity, error) {
+	if rc.parsed {
+		return rc.minMem, nil
+	}
+	if rc.MinMemory == "" {
+		return resource.Quantity{}, nil
+	}
+	q, err := resource.ParseQuantity(rc.MinMemory)
+	if err != nil {
+		return resource.Quantity{}, fmt.Errorf("invalid min_memory %q: %w", rc.MinMemory, err)
+	}
+	return q, nil
 }
 
 type InstanceTypeConf struct {
@@ -742,6 +786,31 @@ func preHandleScheduler(config *Config) error {
 		config.Scheduler.maxMem = resource.MustParse(config.Scheduler.MaxMvmMemory)
 	}
 
+	if config.Scheduler.ResourceConstraints != nil {
+		rc := config.Scheduler.ResourceConstraints
+		if rc.MinCPU != "" {
+			q, err := resource.ParseQuantity(rc.MinCPU)
+			if err != nil {
+				return fmt.Errorf("Scheduler.ResourceConstraints.MinCPU invalid: %w", err)
+			}
+			if q.Cmp(resource.MustParse("0")) <= 0 {
+				return fmt.Errorf("Scheduler.ResourceConstraints.MinCPU must be positive, got %s", rc.MinCPU)
+			}
+			rc.minCPU = q
+		}
+		if rc.MinMemory != "" {
+			q, err := resource.ParseQuantity(rc.MinMemory)
+			if err != nil {
+				return fmt.Errorf("Scheduler.ResourceConstraints.MinMemory invalid: %w", err)
+			}
+			if q.Cmp(resource.MustParse("0")) <= 0 {
+				return fmt.Errorf("Scheduler.ResourceConstraints.MinMemory must be positive, got %s", rc.MinMemory)
+			}
+			rc.minMem = q
+		}
+		rc.parsed = true
+	}
+
 	if config.Scheduler.LargeSizeAffinityConf != nil {
 		for _, v := range config.Scheduler.LargeSizeAffinityConf {
 			if !v.Enable {
@@ -874,6 +943,11 @@ func validate(cfg *Config) error {
 //go:noinline
 func GetConfig() *Config {
 	return cfg
+}
+
+// SetConfigForTest injects a Config for testing purposes.
+func SetConfigForTest(c *Config) {
+	cfg = c
 }
 
 func notify(config *Config) {

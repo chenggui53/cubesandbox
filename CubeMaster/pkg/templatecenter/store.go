@@ -311,6 +311,9 @@ func NormalizeRequest(req *sandboxtypes.CreateCubeSandboxReq) (*sandboxtypes.Cre
 		version = DefaultTemplateVersion
 	}
 	constants.SetAppSnapshotVersion(cloned.Annotations, version)
+	if err := ValidateResourceConstraints(cloned.Containers); err != nil {
+		return nil, "", err
+	}
 	return cloned, templateID, nil
 }
 
