@@ -100,15 +100,15 @@ all: cubemaster cubelet network-agent
 
 cubemaster: builder-image
 	@mkdir -p "$(OUTPUT_DIR)"
-	$(MAKE) builder-run BUILDER_CMD='mkdir -p /workspace/_output/bin && cd /workspace/CubeMaster && go mod download && make proto && go build -o /workspace/_output/bin/cubemaster ./cmd/cubemaster && go build -o /workspace/_output/bin/cubemastercli ./cmd/cubemastercli'
+	$(MAKE) builder-run BUILDER_CMD='mkdir -p /workspace/_output/bin && go clean -cache && cd /workspace/CubeMaster && go mod download && make proto && go build -o /workspace/_output/bin/cubemaster ./cmd/cubemaster && go build -o /workspace/_output/bin/cubemastercli ./cmd/cubemastercli'
 
 cubelet: builder-image
 	@mkdir -p "$(OUTPUT_DIR)"
-	$(MAKE) builder-run BUILDER_CMD='mkdir -p /workspace/_output/bin && cd /workspace/Cubelet && go mod download && make proto && go build -o /workspace/_output/bin/cubelet ./cmd/cubelet && go build -o /workspace/_output/bin/cubecli ./cmd/cubecli'
+	$(MAKE) builder-run BUILDER_CMD='mkdir -p /workspace/_output/bin && go clean -cache && cd /workspace/Cubelet && go mod download && make proto && go build -o /workspace/_output/bin/cubelet ./cmd/cubelet && go build -o /workspace/_output/bin/cubecli ./cmd/cubecli'
 
 network-agent: builder-image
 	@mkdir -p "$(OUTPUT_DIR)"
-	$(MAKE) builder-run BUILDER_CMD='mkdir -p /workspace/_output/bin && cd /workspace/network-agent && make proto && go build -o /workspace/_output/bin/network-agent ./cmd/network-agent'
+	$(MAKE) builder-run BUILDER_CMD='mkdir -p /workspace/_output/bin && go clean -cache && cd /workspace/network-agent && make proto && go build -o /workspace/_output/bin/network-agent ./cmd/network-agent'
 
 agent: builder-image
 	@mkdir -p "$(OUTPUT_DIR)"

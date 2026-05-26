@@ -38,6 +38,9 @@ rm -f \
   "${PREBUILT_DIR}/containerd-shim-cube-rs" \
   "${PREBUILT_DIR}/cube-runtime"
 
+echo "[one-click] clearing Go build cache to ensure fresh builds" >&2
+go clean -cache
+
 echo "[one-click] building cubemaster in builder" >&2
 (cd /workspace/CubeMaster && go mod download && go build -o "${PREBUILT_DIR}/cubemaster" ./cmd/cubemaster)
 
