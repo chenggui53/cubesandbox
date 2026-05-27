@@ -1586,29 +1586,57 @@ func exportImageRootfs(ctx context.Context, source *resolvedSourceImage, workDir
 	return tarPath, nil
 }
 
+// maxExt4Retries is the maximum number of times to bump the image size when
+// mkfs.ext4 fails. Each retry doubles to the next power-of-2 GiB. Five
+// retries covers the jump from 1 GiB to 32 GiB, which is more than enough
+// for any realistic rootfs.
+const maxExt4Retries = 5
+
 func createExt4Image(ctx context.Context, rootfsDir, ext4Path string) error {
-	sizeBytes, err := directorySize(rootfsDir)
+	sizeBytes, fileCount, err := directoryStats(rootfsDir)
 	if err != nil {
 		return err
 	}
 
-	raw := sizeBytes + 256*1024*1024
 	const gib int64 = 1024 * 1024 * 1024
+
+	// Start with double the rootfs size; the retry loop will bump further if
+	// mkfs.ext4 needs more space (inode tables, journal, reserved blocks, etc.).
+	raw := sizeBytes * 2
 	if raw < gib {
 		raw = gib
 	}
 
+	// Round up to the next power-of-2 GiB.
 	gibs := (raw + gib - 1) / gib
 	pow := int64(1)
 	for pow < gibs {
 		pow <<= 1
 	}
 	imageSize := pow * gib
-	if err := runCommand(ctx, "", "truncate", "-s", strconv.FormatInt(imageSize, 10), ext4Path); err != nil {
-		return fmt.Errorf("truncate ext4 image failed: %w", err)
-	}
-	if err := runCommand(ctx, "", "mkfs.ext4", "-F", "-d", rootfsDir, ext4Path); err != nil {
-		return fmt.Errorf("mkfs.ext4 failed: %w", err)
+
+	for attempt := 0; attempt <= maxExt4Retries; attempt++ {
+		log.G(ctx).Infof("createExt4Image: rootfs=%.2f GiB (%d files), "+
+			"imageSize=%.2f GiB, attempt=%d/%d",
+			float64(sizeBytes)/float64(gib), fileCount,
+			float64(imageSize)/float64(gib),
+			attempt+1, maxExt4Retries+1)
+
+		if err := runCommand(ctx, "", "truncate", "-s", strconv.FormatInt(imageSize, 10), ext4Path); err != nil {
+			return fmt.Errorf("truncate ext4 image failed: %w", err)
+		}
+		if err := runCommand(ctx, "", "mkfs.ext4", "-F", "-d", rootfsDir, ext4Path); err == nil {
+			return nil
+		} else if attempt < maxExt4Retries {
+			pow <<= 1
+			prevSize := imageSize
+			imageSize = pow * gib
+			log.G(ctx).Warnf("createExt4Image: mkfs.ext4 failed at %.2f GiB, retrying with %.2f GiB: %v",
+				float64(prevSize)/float64(gib), float64(imageSize)/float64(gib), err)
+		} else {
+			return fmt.Errorf("mkfs.ext4 failed after %d attempts (last size %.2f GiB): %w",
+				maxExt4Retries+1, float64(imageSize)/float64(gib), err)
+		}
 	}
 	return nil
 }
@@ -2182,19 +2210,20 @@ func computeFileSHA256(path string) (string, int64, error) {
 	return hex.EncodeToString(hasher.Sum(nil)), size, nil
 }
 
-func directorySize(root string) (int64, error) {
-	var total int64
-	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
+// directoryStats walks root and returns the total logical file size and file count.
+func directoryStats(root string) (totalBytes int64, fileCount int64, err error) {
+	err = filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
 		if info == nil || info.IsDir() {
 			return nil
 		}
-		total += info.Size()
+		totalBytes += info.Size()
+		fileCount++
 		return nil
 	})
-	return total, err
+	return
 }
 
 func firstNonEmptyDigest(info dockerInspectImage) string {

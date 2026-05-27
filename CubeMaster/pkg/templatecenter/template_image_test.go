@@ -8,7 +8,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -1194,5 +1196,113 @@ func TestRunRedoTemplateImageJobRequiresLocalImageForBuildRedo(t *testing.T) {
 	}
 	if got, _ := lastUpdate["error_message"].(string); !strings.Contains(got, "still exist locally") {
 		t.Fatalf("unexpected error message: %q", got)
+	}
+}
+
+func TestDirectoryStatsEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	totalBytes, fileCount, err := directoryStats(dir)
+	if err != nil {
+		t.Fatalf("directoryStats returned error: %v", err)
+	}
+	if totalBytes != 0 {
+		t.Errorf("expected 0 bytes, got %d", totalBytes)
+	}
+	if fileCount != 0 {
+		t.Errorf("expected 0 files, got %d", fileCount)
+	}
+}
+
+func TestDirectoryStatsMultipleFiles(t *testing.T) {
+	dir := t.TempDir()
+	// Create files: 100 + 200 + 300 = 600 bytes, 3 files
+	for _, size := range []int{100, 200, 300} {
+		data := make([]byte, size)
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%d", size)), data, 0o644); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+	}
+	totalBytes, fileCount, err := directoryStats(dir)
+	if err != nil {
+		t.Fatalf("directoryStats returned error: %v", err)
+	}
+	if totalBytes != 600 {
+		t.Errorf("expected 600 bytes, got %d", totalBytes)
+	}
+	if fileCount != 3 {
+		t.Errorf("expected 3 files, got %d", fileCount)
+	}
+}
+
+func TestDirectoryStatsNestedDirs(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub", "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "a.txt"), make([]byte, 50), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), make([]byte, 70), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	totalBytes, fileCount, err := directoryStats(dir)
+	if err != nil {
+		t.Fatalf("directoryStats returned error: %v", err)
+	}
+	if totalBytes != 120 {
+		t.Errorf("expected 120 bytes, got %d", totalBytes)
+	}
+	if fileCount != 2 {
+		t.Errorf("expected 2 files, got %d", fileCount)
+	}
+}
+
+func TestCreateExt4ImageSmallRootfs(t *testing.T) {
+	if _, err := exec.LookPath("mkfs.ext4"); err != nil {
+		t.Skip("mkfs.ext4 not available")
+	}
+
+	dir := t.TempDir()
+	// Create a small rootfs with a few files.
+	for i := 0; i < 10; i++ {
+		data := make([]byte, 1024*(i+1))
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("file%d.txt", i)), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ext4Path := filepath.Join(t.TempDir(), "test.img")
+	if err := createExt4Image(context.Background(), dir, ext4Path); err != nil {
+		t.Fatalf("createExt4Image failed: %v", err)
+	}
+
+	info, err := os.Stat(ext4Path)
+	if err != nil {
+		t.Fatalf("stat ext4 image: %v", err)
+	}
+	// Image should be at least 1 GiB (minimum).
+	if info.Size() < 1024*1024*1024 {
+		t.Errorf("image size %d bytes, want at least 1 GiB", info.Size())
+	}
+}
+
+func TestCreateExt4ImageEmptyRootfs(t *testing.T) {
+	if _, err := exec.LookPath("mkfs.ext4"); err != nil {
+		t.Skip("mkfs.ext4 not available")
+	}
+
+	dir := t.TempDir()
+	ext4Path := filepath.Join(t.TempDir(), "empty.img")
+	if err := createExt4Image(context.Background(), dir, ext4Path); err != nil {
+		t.Fatalf("createExt4Image failed for empty rootfs: %v", err)
+	}
+
+	info, err := os.Stat(ext4Path)
+	if err != nil {
+		t.Fatalf("stat ext4 image: %v", err)
+	}
+	if info.Size() < 1024*1024*1024 {
+		t.Errorf("image size %d bytes, want at least 1 GiB", info.Size())
 	}
 }
